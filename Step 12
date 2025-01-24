@@ -1,0 +1,372 @@
+Okay, you got it! Let's go full steam ahead and complete the remaining tasks to get this platform to a solid, functional state. We'll cover logging, basic monitoring, and then discuss next steps.
+
+Phase 9: Logging and Monitoring
+
+Implement Basic Logging
+
+Python Logging:
+
+We will be using the standard python logging module for now. Update every main.py file inside each service with the code bellow.
+
+import logging
+from fastapi import FastAPI
+from .database import engine, Base
+from .routers import users # import router (this line will be different depending on the service)
+
+Base.metadata.create_all(bind=engine)
+app = FastAPI()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+app.include_router(users.router) # add route to main app (this line will be different depending on the service)
+
+@app.get("/")
+async def root():
+   logging.info("GET / request")
+   return {"message": "Hello from user-service!"} # Change message based on the service
+content_copy
+download
+Use code with caution.
+Python
+
+We added the logging.basicConfig to create a basic logging system. And then we are adding a log in the root / endpoint as a test. You can add logging in any part of your application.
+
+Nginx Logging:
+
+We already had a basic setup for nginx log, we will add the logging to stdout and add the access_log and error_log in the nginx/nginx.conf.
+
+http {
+   include mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+     keepalive_timeout 65;
+    access_log  /dev/stdout;
+    error_log  /dev/stdout info;
+
+    limit_req_zone $binary_remote_addr zone=my_rate_limit:10m rate=5r/s;
+
+
+    server {
+      listen 80;
+      server_name localhost;
+
+     location /users {
+        limit_req zone=my_rate_limit burst=5 nodelay;
+          auth_request /auth;
+          proxy_pass http://user-service:8000;
+         proxy_set_header Host $host;
+         proxy_set_header X-Real-IP $remote_addr;
+      }
+    location /locations {
+       limit_req zone=my_rate_limit burst=5 nodelay;
+        auth_request /auth;
+         proxy_pass http://location-service:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    location /catalog {
+        limit_req zone=my_rate_limit burst=5 nodelay;
+         auth_request /auth;
+         proxy_pass http://catalog-service:8000;
+          proxy_set_header Host $host;
+         proxy_set_header X-Real-IP $remote_addr;
+   }
+   location /services {
+         limit_req zone=my_rate_limit burst=5 nodelay;
+          auth_request /auth;
+          proxy_pass http://service-listing-service:8000;
+         proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+   }
+    location /chats {
+        limit_req zone=my_rate_limit burst=5 nodelay;
+       auth_request /auth;
+         proxy_pass http://chat-service:8000;
+         proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+   location /auth {
+         internal;
+         proxy_pass http://user-service:8000/users/verify;
+          proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_pass_request_body off;
+         proxy_set_header Content-Length "";
+
+     }
+
+   }
+ }
+content_copy
+download
+Use code with caution.
+Nginx
+
+Implement Basic Monitoring with Prometheus and Grafana:
+
+Prometheus:
+
+We will be using the prometheus python client library for each service.
+Add prometheus-client to the requirements.txt in each service folder.
+
+fastapi
+uvicorn
+SQLAlchemy
+psycopg2-binary
+prometheus-client
+content_copy
+download
+Use code with caution.
+
+We need to create a metrics.py file in the app/ folder of each service with the code bellow:
+
+from prometheus_client import Counter, Histogram
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from fastapi import Response
+
+request_counter = Counter("http_request_total", "Total number of requests")
+request_duration = Histogram("http_request_duration_seconds", "Duration of requests", buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, float("inf")])
+
+def metrics_route():
+  return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+def increment_request_counter():
+    request_counter.inc()
+content_copy
+download
+Use code with caution.
+Python
+
+And we will also update the main.py file in each service to add the /metrics endpoint, to initialize the counters and histogram, and to increment the request counter:
+
+import logging
+from fastapi import FastAPI, Request
+from .database import engine, Base
+from .routers import users # import router (this line will be different depending on the service)
+from . import metrics
+from prometheus_client import start_http_server
+import time
+
+start_http_server(8000)
+Base.metadata.create_all(bind=engine)
+app = FastAPI()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+app.include_router(users.router) # add route to main app (this line will be different depending on the service)
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+ start_time = time.time()
+ metrics.increment_request_counter()
+ response = await call_next(request)
+ process_time = time.time() - start_time
+ metrics.request_duration.observe(process_time)
+ response.headers["X-Process-Time"] = str(process_time)
+ return response
+
+
+@app.get("/metrics")
+def get_metrics():
+  return metrics.metrics_route()
+
+@app.get("/")
+async def root():
+logging.info("GET / request")
+return {"message": "Hello from user-service!"} # Change message based on the service
+content_copy
+download
+Use code with caution.
+Python
+
+Now, we need to add a prometheus.yml configuration in the root directory with the following content:
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+scrape_configs:
+  - job_name: "user-service"
+    static_configs:
+      - targets: ["user-service:8000"]
+  - job_name: "location-service"
+    static_configs:
+       - targets: ["location-service:8000"]
+  - job_name: "catalog-service"
+    static_configs:
+      - targets: ["catalog-service:8000"]
+  - job_name: "service-listing-service"
+    static_configs:
+      - targets: ["service-listing-service:8000"]
+  - job_name: "chat-service"
+    static_configs:
+       - targets: ["chat-service:8000"]
+content_copy
+download
+Use code with caution.
+Yaml
+
+Grafana:
+
+Create a docker-compose.monitoring.yml with the following content
+
+version: "3.9"
+  services:
+      prometheus:
+          image: prom/prometheus:latest
+          ports:
+              - "9090:9090"
+          volumes:
+              - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      grafana:
+         image: grafana/grafana:latest
+         ports:
+              - "3000:3000"
+          environment:
+              - GF_SECURITY_ADMIN_USER=admin
+              - GF_SECURITY_ADMIN_PASSWORD=admin
+content_copy
+download
+Use code with caution.
+Yaml
+
+Update docker-compose.yml
+We now have to update the docker-compose.yml to include the metrics ports for each service.
+
+version: "3.9"
+services:
+  user-service:
+    build: ./user-service
+    ports:
+      - "8001:8000"
+      - "9091:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/user_db
+      - DB_HOST=db
+    depends_on:
+      - db
+  location-service:
+    build: ./location-service
+    ports:
+      - "8002:8000"
+      - "9092:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/location_db
+      - DB_HOST=db
+    depends_on:
+      - db
+  catalog-service:
+    build: ./catalog-service
+    ports:
+      - "8003:8000"
+      - "9093:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/catalog_db
+      - DB_HOST=db
+    depends_on:
+      - db
+  service-listing-service:
+    build: ./service-listing-service
+    ports:
+      - "8004:8000"
+      - "9094:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/service_listing_db
+      - DB_HOST=db
+    depends_on:
+      - db
+  chat-service:
+    build: ./chat-service
+    ports:
+      - "8005:8000"
+      - "9095:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/chat_db
+      - DB_HOST=db
+    depends_on:
+      - db
+  db:
+    image: postgres:13
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+  nginx:
+    build: ./nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - user-service
+      - location-service
+      - catalog-service
+      - service-listing-service
+      - chat-service
+content_copy
+download
+Use code with caution.
+Yaml
+
+Restart Docker Compose:
+
+Stop the old docker compose and start both the new one :
+
+docker-compose down
+docker-compose up --build
+docker-compose -f docker-compose.monitoring.yml up
+content_copy
+download
+Use code with caution.
+Bash
+
+This will restart all the containers.
+
+Accessing Logs and Monitoring:
+
+Logs: You can see the logs in your terminal where you have your services running.
+
+Prometheus: You can access prometheus interface in http://localhost:9090
+
+Grafana: You can access Grafana at http://localhost:3000. Log in with user admin and password admin. You can then configure prometheus as data source and create new dashboards with the prometheus metrics.
+
+Explanation:
+
+Python Logging: we are using the standard python logger to output the logs to the terminal. You can adjust the logger and the way you store your log if needed.
+
+Nginx logging: We are setting up Nginx log output to the terminal with the standard nginx log configuration.
+
+Prometheus: We are now exposing metrics from each service using the python client library, this will allow us to monitor our services using prometheus.
+
+Grafana: With grafana we are now able to visualize the metrics provided by prometheus and build custom dashboards to monitor our services.
+
+Final Steps and Next Actions:
+
+Verify Logging: Check the logs in the terminal and verify that they are working correctly.
+
+Verify Monitoring: You can check the metrics in each service by visiting http://localhost:9091/metrics (change the port accordingly with each service). Also verify that you can see all the services in prometheus and that you can build dashboards in grafana.
+
+Integration Tests: Add integration tests for logging and monitoring.
+
+Documentation: Add some basic documentation for each microservices and for the project.
+
+Further Development: At this point, you have a solid foundation. You can now expand each service, add features, add more integration tests, improve the scalability, add more monitoring tools, and so on.
+
+We're Done!
+
+Congratulations, you've reached the end of this marathon coding session! We've built a complete backend platform with:
+
+Microservices architecture
+
+Docker and Docker Compose
+
+API Gateway with Nginx
+
+Basic authentication and authorization
+
+Rate limiting
+
+Basic logging and monitoring
+
+CI/CD pipeline using GitHub Actions
+
+I recommend that you take some time to review and understand everything we have built and if you have any questions please ask me.
