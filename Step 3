@@ -1,0 +1,256 @@
+Okay, great! Let's get started. I'm excited to move into the more concrete planning phases.
+
+1. Database Choice:
+
+For this project, I would recommend we start with PostgreSQL. Here's why:
+
+Relational Structure: Your data has a lot of clear relationships (e.g., users to products, products to categories, orders to users), and PostgreSQL is excellent at handling these with foreign keys and relationships.
+
+Maturity and Stability: PostgreSQL is a mature and highly reliable database system.
+
+SQL Proficiency: Learning SQL is a valuable skill, and you'll become more proficient with it using PostgreSQL.
+
+Cloud Support: It has strong support on major cloud platforms with free tiers (AWS RDS, Google Cloud SQL, Azure Database for PostgreSQL) if we move there later.
+
+2. Initial Data Models
+
+Here are the initial data models for the five core microservices that we will start building, keeping in mind the MVP and focusing on the required fields. Note that these are initial models, we can always add fields later on as we move forward.
+
+User Service:
+
+users table
+
+id (integer, primary key, auto-incrementing)
+
+username (string, unique, required)
+
+email (string, unique, required)
+
+password (string, required) (we'll hash this)
+
+full_name (string, required)
+
+phone_number (string, can be null)
+
+role (enum, required - client, retailer, artisan, admin)
+
+created_at (timestamp, automatically set)
+
+updated_at (timestamp, automatically set)
+
+Location Service:
+
+markets table
+
+id (integer, primary key, auto-incrementing)
+
+name (string, unique, required)
+
+latitude (decimal, required)
+
+longitude (decimal, required)
+
+addresses table
+
+id (integer, primary key, auto-incrementing)
+
+user_id (integer, foreign key referencing users.id, required )
+
+address_line1 (string, required)
+
+address_line2 (string, can be null)
+
+city (string, required)
+
+latitude (decimal, required)
+
+longitude (decimal, required)
+
+Catalog Service:
+
+categories table
+
+id (integer, primary key, auto-incrementing)
+
+name (string, unique, required)
+
+products table
+
+id (integer, primary key, auto-incrementing)
+
+name (string, required)
+
+description (text, can be null)
+
+price (decimal, required)
+
+category_id (integer, foreign key referencing categories.id, required)
+
+user_id (integer, foreign key referencing users.id, required)
+
+market_id (integer, foreign key referencing markets.id, can be null )
+
+image_url (string, can be null)
+
+Service Listing Service:
+
+service_categories table
+
+id (integer, primary key, auto-incrementing)
+
+name (string, unique, required)
+
+service_listings table
+
+id (integer, primary key, auto-incrementing)
+
+user_id (integer, foreign key referencing users.id, required)
+
+title (string, required)
+
+description (text, can be null)
+
+category_id (integer, foreign key referencing service_categories.id, required)
+
+price (decimal, required)
+
+location (string, can be null) (To be refined later)
+
+image_url (string, can be null)
+
+Chat Service:
+
+chats table
+
+id (integer, primary key, auto-incrementing)
+
+sender_id (integer, foreign key referencing users.id, required)
+
+receiver_id (integer, foreign key referencing users.id, required)
+
+messages table
+
+id (integer, primary key, auto-incrementing)
+
+chat_id (integer, foreign key referencing chats.id, required)
+
+sender_id (integer, foreign key referencing users.id, required)
+
+message_text (text, required)
+
+sent_at (timestamp, automatically set)
+
+3. API Endpoints (High-Level)
+
+These are very basic endpoints to give you a good starting point for each service:
+
+User Service:
+
+POST /users: Create a new user
+
+GET /users: List all users
+
+GET /users/{id}: Get a user by ID
+
+PUT /users/{id}: Update a user
+
+DELETE /users/{id}: Delete a user
+
+POST /users/login: Login a user
+
+Location Service:
+
+POST /markets: Create a new market
+
+GET /markets: List all markets
+
+GET /markets/{id}: Get a market by ID
+
+PUT /markets/{id}: Update a market
+
+DELETE /markets/{id}: Delete a market
+
+POST /addresses : Create an address
+
+GET /addresses : List all addresses
+
+GET /addresses/{id}: Get an address by ID
+
+PUT /addresses/{id}: Update an address
+
+DELETE /addresses/{id}: Delete an address
+
+Catalog Service:
+
+POST /categories: Create a new category
+
+GET /categories: List all categories
+
+GET /categories/{id}: Get a category by ID
+
+PUT /categories/{id}: Update a category
+
+DELETE /categories/{id}: Delete a category
+
+POST /products: Create a new product
+
+GET /products: List all products
+
+GET /products/{id}: Get a product by ID
+
+PUT /products/{id}: Update a product
+
+DELETE /products/{id}: Delete a product
+
+GET /products/search?query={query}: Search products
+
+Service Listing Service:
+
+POST /service-categories: Create a new service category
+
+GET /service-categories: List all service categories
+
+GET /service-categories/{id}: Get a service category by ID
+
+PUT /service-categories/{id}: Update a service category
+
+DELETE /service-categories/{id}: Delete a service category
+
+POST /service-listings: Create a new service listing
+
+GET /service-listings: List all service listings
+
+GET /service-listings/{id}: Get a service listing by ID
+
+PUT /service-listings/{id}: Update a service listing
+
+DELETE /service-listings/{id}: Delete a service listing
+
+GET /service-listings/search?query={query}: Search service listings
+
+Chat Service:
+
+POST /chats: Create a new chat between two user
+
+GET /chats: List all the chats for a user
+
+GET /chats/{id}: Get a chat by ID
+
+POST /messages: send a new message
+
+GET /messages/{chat_id}: Get messages for a given chat
+
+4. Location Data:
+
+For the MVP, let's start with a static list of markets (pre-seeded data) for our markets table and allow users to create custom addresses. This will help simplify development and can be extended later.
+So we can assume that we will create a script that will populate the markets in the first place with our 3 big markets : Tokpa , Dantokpa, Missebo and then add other small markets there.
+
+Next Steps
+
+Confirm the Database Schema: Please review all of the data models and see if they match the goal you have in mind
+
+Set Up Local Environment: I recommend that you install Python, Docker and an IDE to start coding. (we can help with that later if you are not familiar with that)
+
+Create Basic FastAPI Projects: Create FastAPI projects for each service, using the schema we defined. I recommend to create all the service first and then we will implement the database schema in each project and define the models and the API endpoints.
+
+Let me know if you have any questions or if you are ready to move forward!

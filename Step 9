@@ -1,0 +1,159 @@
+Okay, let's move forward and set up a basic CI/CD pipeline using GitHub Actions. This will automate the process of building, testing, and deploying our microservices whenever we push changes to our GitHub repository.
+
+**Phase 6: Setting up CI/CD with GitHub Actions**
+
+1.  **Create a GitHub Repository:**
+
+    *   Create a new repository on GitHub for your project (e.g., `cotonou-marketplace`).
+    *   Push your existing code to this new repository.
+    ```bash
+    git init
+    git add .
+    git commit -m "Initial Commit"
+    git branch -M main
+    git remote add origin <your-repo-url>
+    git push -u origin main
+    ```
+
+2.  **Create a GitHub Actions Workflow File:**
+
+    *   In your `cotonou-marketplace` root directory, create a new folder named `.github`, and inside it create another folder called `workflows`. Inside the `workflows` folder, create a new file named `main.yml`.
+    *   Add the following content to `main.yml`:
+
+        ```yaml
+        name: CI/CD Pipeline
+
+        on:
+          push:
+            branches: [main]
+
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            steps:
+              - name: Checkout code
+                uses: actions/checkout@v3
+
+              - name: Set up Python
+                uses: actions/setup-python@v4
+                with:
+                  python-version: "3.11"
+
+              - name: Install dependencies
+                run: |
+                  pip install docker-compose
+                  cd user-service
+                  pip install -r requirements.txt
+                  cd ../location-service
+                  pip install -r requirements.txt
+                  cd ../catalog-service
+                  pip install -r requirements.txt
+                  cd ../service-listing-service
+                  pip install -r requirements.txt
+                  cd ../chat-service
+                  pip install -r requirements.txt
+                  cd ..
+
+              - name: Build Docker images
+                run: docker-compose build
+
+          test:
+            needs: build
+            runs-on: ubuntu-latest
+            steps:
+              - name: Checkout code
+                uses: actions/checkout@v3
+              - name: Run integration tests
+                # TODO: Implement your integration tests here
+                run: echo "Integration tests skipped"
+
+          deploy:
+            needs: test
+            runs-on: ubuntu-latest
+            steps:
+              - name: Checkout code
+                uses: actions/checkout@v3
+              - name: Set up Docker Buildx
+                uses: docker/setup-buildx-action@v2
+              - name: Login to docker hub
+                if: ${{ secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD }}
+                uses: docker/login-action@v2
+                with:
+                    username: ${{ secrets.DOCKER_USERNAME }}
+                    password: ${{ secrets.DOCKER_PASSWORD }}
+              - name: Build and push docker images
+                if: ${{ secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD }}
+                uses: docker/build-push-action@v4
+                with:
+                    push: true
+                    tags:  |
+                       ${{ secrets.DOCKER_USERNAME }}/user-service:latest
+                       ${{ secrets.DOCKER_USERNAME }}/location-service:latest
+                       ${{ secrets.DOCKER_USERNAME }}/catalog-service:latest
+                       ${{ secrets.DOCKER_USERNAME }}/service-listing-service:latest
+                       ${{ secrets.DOCKER_USERNAME }}/chat-service:latest
+                       ${{ secrets.DOCKER_USERNAME }}/nginx:latest
+                    build-args: |
+                        BUILDKIT_INLINE_CACHE=1
+                    load: false
+                    file: |
+                       ./user-service/Dockerfile
+                       ./location-service/Dockerfile
+                       ./catalog-service/Dockerfile
+                       ./service-listing-service/Dockerfile
+                       ./chat-service/Dockerfile
+                       ./nginx/Dockerfile
+
+        ```
+
+        This workflow does the following:
+        *   `on push`: Triggers the workflow when changes are pushed to the `main` branch.
+        *   `build`:
+            *   Check out the code from the repository.
+            *   Set up Python 3.11.
+            *   Installs dependencies.
+            *   Builds the Docker images.
+        *   `test`:
+            *   Runs basic integration test. (You will have to implement it)
+        *   `deploy` :
+             * Log in to docker hub, and only deploy if you have configured your dockerhub credentials.
+            * Build and push the docker images to dockerhub.
+
+3.  **Set up Docker Hub (or other Container Registry) if you want to automatically push your docker images**
+
+    *   Create an account on Docker Hub ([https://hub.docker.com/](https://hub.docker.com/)) or other container registry if you dont want to use dockerhub.
+    *   Create an organisation or a new repository in your docker account.
+
+4.  **Add GitHub Secrets:**
+    *   Go to your GitHub repository settings -> Secrets -> Actions
+    *   Add the following secrets:
+          *  `DOCKER_USERNAME` : your docker hub username
+          *  `DOCKER_PASSWORD`: your docker hub password
+    This will allow Github Action to log in to Docker hub and push the images you just built.
+
+5.  **Commit and Push Changes:**
+
+    *   Commit the `main.yml` file and push the changes to your GitHub repository.
+    ```bash
+    git add .
+    git commit -m "Add Github Action Workflow"
+    git push origin main
+    ```
+6. **Monitor GitHub Actions**
+
+     *  Go to your Github project and check the actions tab, you should see the workflow you just created and you can follow the different steps to see if everything is working well.
+
+**Explanation:**
+
+*   **GitHub Actions Workflow:** We've defined a workflow that automates building, testing, and deploying our application using GitHub Actions.
+*   **Docker Hub Integration:** The workflow is set up to push your Docker images to Docker Hub (or any other Container Registry).
+*   **Automation:** This pipeline will automatically be triggered when you make a change and push your code to the `main` branch.
+
+**Next Steps:**
+
+1.  **Verify CI/CD:** Make a change in your code, push it, and check if the GitHub Actions workflow runs successfully.
+2.  **Add Integration Tests:** Now that we have the CI pipeline setup, add integration tests.
+3.  **Basic Security:** Implement basic authentication to protect our APIs.
+
+Once you verify that the CI/CD pipeline is working, let me know and we will start working on the Basic Security.
+

@@ -1,0 +1,205 @@
+Alright, let's keep pushing forward! Now that we have all the microservices with their basic functionalities, we'll focus on setting up a basic API Gateway using Nginx. This will provide a single entry point for your platform and help with routing requests to the correct microservices.
+
+Phase 5: Setting up a Basic API Gateway with Nginx
+
+Create an Nginx Configuration File:
+
+In your cotonou-marketplace root directory, create a new directory called nginx, and inside it create a new file named nginx.conf with the following content:
+
+worker_processes 1;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+  include mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+    keepalive_timeout 65;
+
+    server {
+       listen 80;
+        server_name localhost;
+
+        location /users {
+            proxy_pass http://user-service:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+        location /locations {
+            proxy_pass http://location-service:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+         location /catalog {
+            proxy_pass http://catalog-service:8000;
+            proxy_set_header Host $host;
+             proxy_set_header X-Real-IP $remote_addr;
+        }
+        location /services {
+             proxy_pass http://service-listing-service:8000;
+             proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+        location /chats {
+             proxy_pass http://chat-service:8000;
+             proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+    }
+}
+content_copy
+download
+Use code with caution.
+Nginx
+
+This config file does the following:
+
+server: Defines a server that listens on port 80.
+
+location /users: For any request starting with /users, it will route to our user-service container at port 8000.
+
+location /locations: For any request starting with /locations, it will route to our location-service container at port 8000.
+
+location /catalog: For any request starting with /catalog, it will route to our catalog-service container at port 8000.
+
+location /services: For any request starting with /services, it will route to our service-listing-service container at port 8000.
+
+location /chats: For any request starting with /chats, it will route to our chat-service container at port 8000.
+
+Create a Dockerfile for Nginx:
+Create a file called Dockerfile inside the nginx folder with this content:
+
+FROM nginx:latest
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+content_copy
+download
+Use code with caution.
+Dockerfile
+
+Update docker-compose.yml:
+
+Modify your docker-compose.yml file in the root directory to include the Nginx service. It should look like this:
+
+version: "3.9"
+services:
+  user-service:
+    build: ./user-service
+    ports:
+      - "8001:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/user_db
+      - DB_HOST=db
+    depends_on:
+      - db
+  location-service:
+    build: ./location-service
+    ports:
+      - "8002:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/location_db
+      - DB_HOST=db
+    depends_on:
+      - db
+  catalog-service:
+    build: ./catalog-service
+    ports:
+      - "8003:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/catalog_db
+      - DB_HOST=db
+    depends_on:
+      - db
+  service-listing-service:
+    build: ./service-listing-service
+    ports:
+      - "8004:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/service_listing_db
+      - DB_HOST=db
+    depends_on:
+      - db
+  chat-service:
+    build: ./chat-service
+    ports:
+      - "8005:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/chat_db
+      - DB_HOST=db
+    depends_on:
+      - db
+  db:
+    image: postgres:13
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+  nginx:
+    build: ./nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - user-service
+      - location-service
+      - catalog-service
+      - service-listing-service
+      - chat-service
+content_copy
+download
+Use code with caution.
+Yaml
+
+Key changes:
+
+Added the nginx service and specify its build path and the port mapping 80:80.
+
+The nginx service is now dependent of all the other services.
+
+Restart Docker Compose:
+
+docker-compose down && docker-compose up --build
+content_copy
+download
+Use code with caution.
+Bash
+
+This command will rebuild the images to include the Nginx container and start all the containers.
+
+Accessing API Through the Gateway:
+
+Now, you should be able to access your microservices through the Nginx gateway on port 80. For instance:
+
+User Service: http://localhost/users
+
+Location Service: http://localhost/locations
+
+Catalog Service: http://localhost/catalog
+
+Service Listing Service: http://localhost/services
+
+Chat Service: http://localhost/chats
+
+You can test the access by opening your browser to one of those URL and will see the response from each microservices. You can also access the swagger documentation using the http://localhost/users/docs, http://localhost/locations/docs, etc...
+
+Explanation:
+
+Nginx as Gateway: Nginx acts as a reverse proxy, routing requests based on the URL path to the correct microservice.
+
+Single Entry Point: Your platform now has a single entry point, making it easier to manage and scale.
+
+Simplified Access: Clients will now interact with the backend through http://localhost and with the proper route to the services they need.
+
+Next Steps:
+
+Test All Endpoints Through Gateway: Verify that all endpoints for all microservices work correctly via the gateway.
+
+Integration Test Create integration test to test the interactions between the different services through the gateway.
+
+CI/CD Setup: We can start configuring CI/CD using GitHub Actions/Gitlab CI.
+
+Basic Authentication/Authorization: Now that we have the gateway, we can use it to implement basic authentication logic.
+
+Once you verify that the API gateway is working, let me know, and we'll continue with CI/CD and security setup!

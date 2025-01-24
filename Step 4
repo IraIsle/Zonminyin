@@ -1,0 +1,157 @@
+Okay, "do everything" is a big ask, but I understand you're eager to get going. Let's break it down into manageable chunks, focusing on getting the core infrastructure and the first microservice (User Service) up and running. We'll move step-by-step.
+
+Phase 1: Project Setup and Initial User Service
+
+Here's what we'll do in this phase:
+
+Local Development Environment Setup (Assuming You Have Python):
+
+Install Docker: If you don't have Docker installed, go to https://www.docker.com/get-started/ and follow the instructions for your operating system.
+
+Install Python IDE: if you don't have an IDE ( VS Code or Pycharm) download one.
+
+Create a project directory: create a root directory for the project cotonou-marketplace in your local filesystem.
+
+Create FastAPI Projects (Initial Structure)
+Inside your cotonou-marketplace project directory, create the following folders for each microservices :
+
+cotonou-marketplace/
+├── user-service/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py
+│   │
+│   ├── Dockerfile
+│   └── requirements.txt
+├── location-service/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py
+│   │
+│   ├── Dockerfile
+│   └── requirements.txt
+├── catalog-service/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py
+│   │
+│   ├── Dockerfile
+│   └── requirements.txt
+├── service-listing-service/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py
+│   │
+│   ├── Dockerfile
+│   └── requirements.txt
+ ├── chat-service/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py
+│   │
+│   ├── Dockerfile
+│   └── requirements.txt
+└── docker-compose.yml
+content_copy
+download
+Use code with caution.
+
+Dockerfile for each service:
+
+Inside each service folder ( user-service, location-service, etc.) create a Dockerfile and requirements.txt with the content below:
+
+# Use an official Python runtime as a parent image
+FROM python:3.11-slim
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy the requirements file into the container
+COPY requirements.txt ./
+
+# Install any dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the application code into the container
+COPY ./app .
+
+# Command to run the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+content_copy
+download
+Use code with caution.
+Dockerfile
+
+And add the following to requirements.txt:
+
+fastapi
+uvicorn
+content_copy
+download
+Use code with caution.
+
+docker-compose.yml:
+
+Create a docker-compose.yml in the root directory(cotonou-marketplace):
+yaml version: "3.9" services: user-service: build: ./user-service ports: - "8001:8000" environment: - DATABASE_URL=postgresql://postgres:postgres@db:5432/user_db - DB_HOST=db depends_on: - db location-service: build: ./location-service ports: - "8002:8000" environment: - DATABASE_URL=postgresql://postgres:postgres@db:5432/location_db - DB_HOST=db depends_on: - db catalog-service: build: ./catalog-service ports: - "8003:8000" environment: - DATABASE_URL=postgresql://postgres:postgres@db:5432/catalog_db - DB_HOST=db depends_on: - db service-listing-service: build: ./service-listing-service ports: - "8004:8000" environment: - DATABASE_URL=postgresql://postgres:postgres@db:5432/service_listing_db - DB_HOST=db depends_on: - db chat-service: build: ./chat-service ports: - "8005:8000" environment: - DATABASE_URL=postgresql://postgres:postgres@db:5432/chat_db - DB_HOST=db depends_on: - db db: image: postgres:13 ports: - "5432:5432" environment: POSTGRES_USER: postgres POSTGRES_PASSWORD: postgres
+5. Basic FastAPI application (main.py) for each service
+
+Inside each `app/` folder create a `main.py` file with the content below:
+```python
+from fastapi import FastAPI
+
+app = FastAPI()
+
+
+@app.get("/")
+async def root():
+    return {"message": "Hello from {service_name}!"} #you need to change the {service_name} for the name of the current service.
+
+```
+For the `user-service` replace the message with `"Hello from user-service!"`, for the `location-service` replace the message with `"Hello from location-service!"`, etc...
+content_copy
+download
+Use code with caution.
+
+Running the basic Services
+
+Start Docker Compose: In the cotonou-marketplace directory, open a terminal and run:
+
+docker-compose up --build
+content_copy
+download
+Use code with caution.
+Bash
+
+This will build the Docker images and start all the services.
+
+Access the API endpoints You can access the services API in your browser using the following links:
+
+User Service: http://localhost:8001
+
+Location Service: http://localhost:8002
+
+Catalog Service: http://localhost:8003
+
+Service Listing Service: http://localhost:8004
+
+Chat Service: http://localhost:8005
+
+Explanation:
+
+Dockerfiles: These define the environment for each microservice, ensuring consistency.
+
+docker-compose.yml: This file configures how all the services will run together (including the database), and which ports they will be available on. It also tells docker compose to build the docker images before running the containers.
+
+FastAPI Structure: We have created a minimal setup for each service. FastAPI's structure makes it easy to build API endpoints.
+
+Next Steps:
+
+Verify: Make sure all the services starts properly and you are able to access the API endpoints.
+
+Database Setup and Model Creation for User Service:
+We will focus on setting up the database connection and implement the user model in the user-service project.
+
+Implement Basic API Endpoints for User Service: We'll start with the POST (create), GET (list) and GET/{id} (get one) endpoints for users.
+
+Once you confirm that the basic services are up and running, let me know, and we can proceed with the database setup for the User Service.

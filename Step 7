@@ -1,0 +1,832 @@
+Okay, I understand you'd like to accelerate the process and complete all the microservices. While it's a lot to cover in one go, I'll provide the code and explanations for the remaining services, so we can have a complete backend structure.
+
+**Phase 4: Completing All Microservices (Location, Catalog, Service Listing, and Chat)**
+
+I'll present the code for each microservice, focusing on the database models, API endpoints, and basic functionality.
+
+**1. Location Service**
+
+*   **`location-service/app/config.py`:**
+
+    ```python
+    import os
+
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/location_db")
+    DB_HOST = os.getenv("DB_HOST", "localhost")
+    ```
+
+*   **`location-service/app/database.py`:**
+
+    ```python
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.ext.declarative import declarative_base
+
+    from .config import DATABASE_URL
+
+    engine = create_engine(DATABASE_URL)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    Base = declarative_base()
+
+    def get_db():
+        db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+    ```
+
+*   **`location-service/app/models.py`:**
+
+    ```python
+    from sqlalchemy import Column, Integer, String, Numeric, ForeignKey
+    from sqlalchemy.orm import relationship
+    from .database import Base
+
+    class Market(Base):
+        __tablename__ = "markets"
+
+        id = Column(Integer, primary_key=True, index=True)
+        name = Column(String, unique=True, nullable=False)
+        latitude = Column(Numeric, nullable=False)
+        longitude = Column(Numeric, nullable=False)
+
+    class Address(Base):
+        __tablename__ = "addresses"
+
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        address_line1 = Column(String, nullable=False)
+        address_line2 = Column(String, nullable=True)
+        city = Column(String, nullable=False)
+        latitude = Column(Numeric, nullable=False)
+        longitude = Column(Numeric, nullable=False)
+        #relationship("User", back_populates="addresses") # need to create the relationship in user-service models
+    ```
+
+*   **`location-service/app/schemas.py`:**
+
+    ```python
+    from pydantic import BaseModel
+    from typing import Optional
+
+    class MarketCreate(BaseModel):
+        name: str
+        latitude: float
+        longitude: float
+
+    class Market(MarketCreate):
+        id: int
+
+        class Config:
+            orm_mode = True
+
+    class MarketUpdate(BaseModel):
+        name: Optional[str] = None
+        latitude: Optional[float] = None
+        longitude: Optional[float] = None
+
+    class AddressCreate(BaseModel):
+        user_id: int
+        address_line1: str
+        address_line2: Optional[str] = None
+        city: str
+        latitude: float
+        longitude: float
+
+    class Address(AddressCreate):
+        id: int
+
+        class Config:
+            orm_mode = True
+    class AddressUpdate(BaseModel):
+        user_id: Optional[int] = None
+        address_line1: Optional[str] = None
+        address_line2: Optional[str] = None
+        city: Optional[str] = None
+        latitude: Optional[float] = None
+        longitude: Optional[float] = None
+    ```
+
+*   **`location-service/app/routers/locations.py`:**
+
+    ```python
+    from fastapi import APIRouter, Depends, HTTPException, status
+    from sqlalchemy.orm import Session
+
+    from .. import models, schemas
+    from ..database import get_db
+
+    router = APIRouter(prefix="/locations", tags=["locations"])
+
+
+    @router.post("/markets", response_model=schemas.Market, status_code=status.HTTP_201_CREATED)
+    def create_market(market: schemas.MarketCreate, db: Session = Depends(get_db)):
+        db_market = models.Market(**market.dict())
+        db.add(db_market)
+        db.commit()
+        db.refresh(db_market)
+        return db_market
+
+
+    @router.get("/markets", response_model=list[schemas.Market])
+    def read_markets(db: Session = Depends(get_db)):
+        db_markets = db.query(models.Market).all()
+        return db_markets
+
+
+    @router.get("/markets/{market_id}", response_model=schemas.Market)
+    def read_market(market_id: int, db: Session = Depends(get_db)):
+        db_market = db.query(models.Market).filter(models.Market.id == market_id).first()
+        if db_market is None:
+            raise HTTPException(status_code=404, detail="Market not found")
+        return db_market
+
+
+    @router.put("/markets/{market_id}", response_model=schemas.Market)
+    def update_market(market_id: int, market: schemas.MarketUpdate, db: Session = Depends(get_db)):
+        db_market = db.query(models.Market).filter(models.Market.id == market_id).first()
+        if db_market is None:
+             raise HTTPException(status_code=404, detail="Market not found")
+        for key, value in market.dict(exclude_unset=True).items():
+                setattr(db_market,key, value)
+        db.commit()
+        db.refresh(db_market)
+        return db_market
+
+    @router.delete("/markets/{market_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_market(market_id: int, db: Session = Depends(get_db)):
+        db_market = db.query(models.Market).filter(models.Market.id == market_id).first()
+        if db_market is None:
+             raise HTTPException(status_code=404, detail="Market not found")
+        db.delete(db_market)
+        db.commit()
+        return
+
+    @router.post("/addresses", response_model=schemas.Address, status_code=status.HTTP_201_CREATED)
+    def create_address(address: schemas.AddressCreate, db: Session = Depends(get_db)):
+        db_address = models.Address(**address.dict())
+        db.add(db_address)
+        db.commit()
+        db.refresh(db_address)
+        return db_address
+
+
+    @router.get("/addresses", response_model=list[schemas.Address])
+    def read_addresses(db: Session = Depends(get_db)):
+        db_addresses = db.query(models.Address).all()
+        return db_addresses
+
+
+    @router.get("/addresses/{address_id}", response_model=schemas.Address)
+    def read_address(address_id: int, db: Session = Depends(get_db)):
+        db_address = db.query(models.Address).filter(models.Address.id == address_id).first()
+        if db_address is None:
+            raise HTTPException(status_code=404, detail="Address not found")
+        return db_address
+
+    @router.put("/addresses/{address_id}", response_model=schemas.Address)
+    def update_address(address_id: int, address: schemas.AddressUpdate, db: Session = Depends(get_db)):
+        db_address = db.query(models.Address).filter(models.Address.id == address_id).first()
+        if db_address is None:
+             raise HTTPException(status_code=404, detail="Address not found")
+        for key, value in address.dict(exclude_unset=True).items():
+                setattr(db_address,key, value)
+        db.commit()
+        db.refresh(db_address)
+        return db_address
+
+
+    @router.delete("/addresses/{address_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_address(address_id: int, db: Session = Depends(get_db)):
+        db_address = db.query(models.Address).filter(models.Address.id == address_id).first()
+        if db_address is None:
+             raise HTTPException(status_code=404, detail="Address not found")
+        db.delete(db_address)
+        db.commit()
+        return
+    ```
+
+*   **`location-service/app/main.py`:**
+
+    ```python
+    from fastapi import FastAPI
+    from .database import engine, Base
+
+    from .routers import locations
+
+    Base.metadata.create_all(bind=engine)
+    app = FastAPI()
+
+    app.include_router(locations.router)
+
+
+    @app.get("/")
+    async def root():
+        return {"message": "Hello from location-service!"}
+    ```
+
+**2. Catalog Service**
+
+*   **`catalog-service/app/config.py`:**
+
+    ```python
+    import os
+
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/catalog_db")
+    DB_HOST = os.getenv("DB_HOST", "localhost")
+    ```
+
+*   **`catalog-service/app/database.py`:**
+
+    ```python
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.ext.declarative import declarative_base
+
+    from .config import DATABASE_URL
+
+    engine = create_engine(DATABASE_URL)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    Base = declarative_base()
+
+    def get_db():
+        db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+    ```
+
+*   **`catalog-service/app/models.py`:**
+
+    ```python
+    from sqlalchemy import Column, Integer, String, Text, Numeric, ForeignKey
+    from sqlalchemy.orm import relationship
+    from .database import Base
+
+    class Category(Base):
+        __tablename__ = "categories"
+
+        id = Column(Integer, primary_key=True, index=True)
+        name = Column(String, unique=True, nullable=False)
+
+    class Product(Base):
+        __tablename__ = "products"
+
+        id = Column(Integer, primary_key=True, index=True)
+        name = Column(String, nullable=False)
+        description = Column(Text, nullable=True)
+        price = Column(Numeric, nullable=False)
+        category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
+        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        market_id = Column(Integer, ForeignKey("markets.id"), nullable=True)
+        image_url = Column(String, nullable=True)
+    ```
+
+*   **`catalog-service/app/schemas.py`:**
+
+    ```python
+    from pydantic import BaseModel
+    from typing import Optional
+
+
+    class CategoryCreate(BaseModel):
+        name: str
+
+    class Category(CategoryCreate):
+        id: int
+
+        class Config:
+            orm_mode = True
+    class CategoryUpdate(BaseModel):
+       name: Optional[str] = None
+    class ProductCreate(BaseModel):
+        name: str
+        description: Optional[str] = None
+        price: float
+        category_id: int
+        user_id: int
+        market_id: Optional[int] = None
+        image_url: Optional[str] = None
+
+    class Product(ProductCreate):
+        id: int
+
+        class Config:
+            orm_mode = True
+    class ProductUpdate(BaseModel):
+        name: Optional[str] = None
+        description: Optional[str] = None
+        price: Optional[float] = None
+        category_id: Optional[int] = None
+        user_id: Optional[int] = None
+        market_id: Optional[int] = None
+        image_url: Optional[str] = None
+    ```
+
+*   **`catalog-service/app/routers/catalog.py`:**
+
+    ```python
+    from fastapi import APIRouter, Depends, HTTPException, status
+    from sqlalchemy.orm import Session
+    from typing import List
+    from .. import models, schemas
+    from ..database import get_db
+
+    router = APIRouter(prefix="/catalog", tags=["catalog"])
+
+
+    @router.post("/categories", response_model=schemas.Category, status_code=status.HTTP_201_CREATED)
+    def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_db)):
+        db_category = models.Category(**category.dict())
+        db.add(db_category)
+        db.commit()
+        db.refresh(db_category)
+        return db_category
+
+
+    @router.get("/categories", response_model=List[schemas.Category])
+    def read_categories(db: Session = Depends(get_db)):
+        db_categories = db.query(models.Category).all()
+        return db_categories
+
+
+    @router.get("/categories/{category_id}", response_model=schemas.Category)
+    def read_category(category_id: int, db: Session = Depends(get_db)):
+        db_category = db.query(models.Category).filter(models.Category.id == category_id).first()
+        if db_category is None:
+            raise HTTPException(status_code=404, detail="Category not found")
+        return db_category
+
+    @router.put("/categories/{category_id}", response_model=schemas.Category)
+    def update_category(category_id: int, category: schemas.CategoryUpdate, db: Session = Depends(get_db)):
+        db_category = db.query(models.Category).filter(models.Category.id == category_id).first()
+        if db_category is None:
+            raise HTTPException(status_code=404, detail="Category not found")
+        for key, value in category.dict(exclude_unset=True).items():
+                setattr(db_category,key, value)
+        db.commit()
+        db.refresh(db_category)
+        return db_category
+
+    @router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_category(category_id: int, db: Session = Depends(get_db)):
+        db_category = db.query(models.Category).filter(models.Category.id == category_id).first()
+        if db_category is None:
+            raise HTTPException(status_code=404, detail="Category not found")
+        db.delete(db_category)
+        db.commit()
+        return
+
+    @router.post("/products", response_model=schemas.Product, status_code=status.HTTP_201_CREATED)
+    def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
+        db_product = models.Product(**product.dict())
+        db.add(db_product)
+        db.commit()
+        db.refresh(db_product)
+        return db_product
+
+
+    @router.get("/products", response_model=List[schemas.Product])
+    def read_products(db: Session = Depends(get_db)):
+        db_products = db.query(models.Product).all()
+        return db_products
+
+
+    @router.get("/products/{product_id}", response_model=schemas.Product)
+    def read_product(product_id: int, db: Session = Depends(get_db)):
+        db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
+        if db_product is None:
+             raise HTTPException(status_code=404, detail="Product not found")
+        return db_product
+
+    @router.put("/products/{product_id}", response_model=schemas.Product)
+    def update_product(product_id: int, product: schemas.ProductUpdate, db: Session = Depends(get_db)):
+        db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
+        if db_product is None:
+             raise HTTPException(status_code=404, detail="Product not found")
+        for key, value in product.dict(exclude_unset=True).items():
+             setattr(db_product,key, value)
+        db.commit()
+        db.refresh(db_product)
+        return db_product
+
+
+    @router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_product(product_id: int, db: Session = Depends(get_db)):
+        db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
+        if db_product is None:
+             raise HTTPException(status_code=404, detail="Product not found")
+        db.delete(db_product)
+        db.commit()
+        return
+    ```
+
+*   **`catalog-service/app/main.py`:**
+
+    ```python
+    from fastapi import FastAPI
+    from .database import engine, Base
+
+    from .routers import catalog
+
+    Base.metadata.create_all(bind=engine)
+    app = FastAPI()
+
+    app.include_router(catalog.router)
+
+    @app.get("/")
+    async def root():
+        return {"message": "Hello from catalog-service!"}
+    ```
+
+**3. Service Listing Service**
+
+*   **`service-listing-service/app/config.py`:**
+
+    ```python
+    import os
+
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/service_listing_db")
+    DB_HOST = os.getenv("DB_HOST", "localhost")
+    ```
+
+*   **`service-listing-service/app/database.py`:**
+
+    ```python
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.ext.declarative import declarative_base
+
+    from .config import DATABASE_URL
+
+    engine = create_engine(DATABASE_URL)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    Base = declarative_base()
+
+    def get_db():
+        db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+    ```
+
+*   **`service-listing-service/app/models.py`:**
+
+    ```python
+    from sqlalchemy import Column, Integer, String, Text, Numeric, ForeignKey
+    from sqlalchemy.orm import relationship
+    from .database import Base
+
+
+    class ServiceCategory(Base):
+        __tablename__ = "service_categories"
+
+        id = Column(Integer, primary_key=True, index=True)
+        name = Column(String, unique=True, nullable=False)
+
+    class ServiceListing(Base):
+        __tablename__ = "service_listings"
+
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        title = Column(String, nullable=False)
+        description = Column(Text, nullable=True)
+        category_id = Column(Integer, ForeignKey("service_categories.id"), nullable=False)
+        price = Column(Numeric, nullable=False)
+        location = Column(String, nullable=True)
+        image_url = Column(String, nullable=True)
+    ```
+
+*   **`service-listing-service/app/schemas.py`:**
+
+    ```python
+    from pydantic import BaseModel
+    from typing import Optional
+
+
+    class ServiceCategoryCreate(BaseModel):
+        name: str
+
+    class ServiceCategory(ServiceCategoryCreate):
+        id: int
+
+        class Config:
+            orm_mode = True
+    class ServiceCategoryUpdate(BaseModel):
+        name: Optional[str] = None
+
+
+    class ServiceListingCreate(BaseModel):
+        user_id: int
+        title: str
+        description: Optional[str] = None
+        category_id: int
+        price: float
+        location: Optional[str] = None
+        image_url: Optional[str] = None
+
+    class ServiceListing(ServiceListingCreate):
+        id: int
+
+        class Config:
+            orm_mode = True
+    class ServiceListingUpdate(BaseModel):
+         user_id: Optional[int] = None
+         title: Optional[str] = None
+         description: Optional[str] = None
+         category_id: Optional[int] = None
+         price: Optional[float] = None
+         location: Optional[str] = None
+         image_url: Optional[str] = None
+    ```
+
+*   **`service-listing-service/app/routers/services.py`:**
+
+    ```python
+    from fastapi import APIRouter, Depends, HTTPException, status
+    from sqlalchemy.orm import Session
+    from typing import List
+    from .. import models, schemas
+    from ..database import get_db
+
+
+    router = APIRouter(prefix="/services", tags=["services"])
+
+
+    @router.post("/categories", response_model=schemas.ServiceCategory, status_code=status.HTTP_201_CREATED)
+    def create_service_category(category: schemas.ServiceCategoryCreate, db: Session = Depends(get_db)):
+        db_category = models.ServiceCategory(**category.dict())
+        db.add(db_category)
+        db.commit()
+        db.refresh(db_category)
+        return db_category
+
+    @router.get("/categories", response_model=List[schemas.ServiceCategory])
+    def read_service_categories(db: Session = Depends(get_db)):
+        db_categories = db.query(models.ServiceCategory).all()
+        return db_categories
+
+    @router.get("/categories/{category_id}", response_model=schemas.ServiceCategory)
+    def read_service_category(category_id: int, db: Session = Depends(get_db)):
+        db_category = db.query(models.ServiceCategory).filter(models.ServiceCategory.id == category_id).first()
+        if db_category is None:
+            raise HTTPException(status_code=404, detail="Service Category not found")
+        return db_category
+
+
+    @router.put("/categories/{category_id}", response_model=schemas.ServiceCategory)
+    def update_service_category(category_id: int, category: schemas.ServiceCategoryUpdate, db: Session = Depends(get_db)):
+        db_category = db.query(models.ServiceCategory).filter(models.ServiceCategory.id == category_id).first()
+        if db_category is None:
+             raise HTTPException(status_code=404, detail="Service Category not found")
+        for key, value in category.dict(exclude_unset=True).items():
+            setattr(db_category,key, value)
+        db.commit()
+        db.refresh(db_category)
+        return db_category
+
+    @router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_service_category(category_id: int, db: Session = Depends(get_db)):
+        db_category = db.query(models.ServiceCategory).filter(models.ServiceCategory.id == category_id).first()
+        if db_category is None:
+             raise HTTPException(status_code=404, detail="Service Category not found")
+        db.delete(db_category)
+        db.commit()
+        return
+
+
+    @router.post("/listings", response_model=schemas.ServiceListing, status_code=status.HTTP_201_CREATED)
+    def create_service_listing(service: schemas.ServiceListingCreate, db: Session = Depends(get_db)):
+        db_service = models.ServiceListing(**service.dict())
+        db.add(db_service)
+        db.commit()
+        db.refresh(db_service)
+        return db_service
+
+    @router.get("/listings", response_model=List[schemas.ServiceListing])
+    def read_service_listings(db: Session = Depends(get_db)):
+        db_services = db.query(models.ServiceListing).all()
+        return db_services
+
+    @router.get("/listings/{listing_id}", response_model=schemas.ServiceListing)
+    def read_service_listing(listing_id: int, db: Session = Depends(get_db)):
+        db_service = db.query(models.ServiceListing).filter(models.ServiceListing.id == listing_id).first()
+        if db_service is None:
+           raise HTTPException(status_code=404, detail="Service Listing not found")
+        return db_service
+
+    @router.put("/listings/{listing_id}", response_model=schemas.ServiceListing)
+    def update_service_listing(listing_id: int, service: schemas.ServiceListingUpdate, db: Session = Depends(get_db)):
+        db_service = db.query(models.ServiceListing).filter(models.ServiceListing.id == listing_id).first()
+        if db_service is None:
+            raise HTTPException(status_code=404, detail="Service Listing not found")
+        for key, value in service.dict(exclude_unset=True).items():
+           setattr(db_service,key, value)
+        db.commit()
+        db.refresh(db_service)
+        return db_service
+
+    @router.delete("/listings/{listing_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_service_listing(listing_id: int, db: Session = Depends(get_db)):
+        db_service = db.query(models.ServiceListing).filter(models.ServiceListing.id == listing_id).first()
+        if db_service is None:
+            raise HTTPException(status_code=404, detail="Service Listing not found")
+        db.delete(db_service)
+        db.commit()
+        return
+    ```
+
+*   **`service-listing-service/app/main.py`:**
+
+    ```python
+    from fastapi import FastAPI
+    from .database import engine, Base
+
+    from .routers import services
+
+    Base.metadata.create_all(bind=engine)
+    app = FastAPI()
+
+    app.include_router(services.router)
+
+    @app.get("/")
+    async def root():
+        return {"message": "Hello from service-listing-service!"}
+    ```
+
+**4. Chat Service**
+
+*   **`chat-service/app/config.py`:**
+
+    ```python
+    import os
+
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/chat_db")
+    DB_HOST = os.getenv("DB_HOST", "localhost")
+    ```
+
+*   **`chat-service/app/database.py`:**
+
+    ```python
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.ext.declarative import declarative_base
+
+    from .config import DATABASE_URL
+
+    engine = create_engine(DATABASE_URL)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    Base = declarative_base()
+
+    def get_db():
+        db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+    ```
+
+*   **`chat-service/app/models.py`:**
+
+    ```python
+    from sqlalchemy import Column, Integer, Text, ForeignKey, DateTime, func
+    from sqlalchemy.orm import relationship
+    from .database import Base
+
+    class Chat(Base):
+        __tablename__ = "chats"
+
+        id = Column(Integer, primary_key=True, index=True)
+        sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        receiver_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    class Message(Base):
+        __tablename__ = "messages"
+
+        id = Column(Integer, primary_key=True, index=True)
+        chat_id = Column(Integer, ForeignKey("chats.id"), nullable=False)
+        sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        message_text = Column(Text, nullable=False)
+        sent_at = Column(DateTime(timezone=True), server_default=func.now())
+    ```
+
+*   **`chat-service/app/schemas.py`:**
+
+    ```python
+    from pydantic import BaseModel
+    from typing import Optional, List
+    from datetime import datetime
+
+    class ChatCreate(BaseModel):
+        sender_id: int
+        receiver_id: int
+
+    class Chat(ChatCreate):
+        id: int
+
+        class Config:
+            orm_mode = True
+
+
+    class MessageCreate(BaseModel):
+        chat_id: int
+        sender_id: int
+        message_text: str
+
+
+    class Message(MessageCreate):
+        id: int
+        sent_at : datetime
+
+        class Config:
+            orm_mode = True
+    ```
+
+*   **`chat-service/app/routers/chats.py`:**
+
+    ```python
+    from fastapi import APIRouter, Depends, HTTPException, status
+    from sqlalchemy.orm import Session
+    from typing import List
+
+    from .. import models, schemas
+    from ..database import get_db
+
+    router = APIRouter(prefix="/chats", tags=["chats"])
+
+    @router.post("/", response_model=schemas.Chat, status_code=status.HTTP_201_CREATED)
+    def create_chat(chat: schemas.ChatCreate, db: Session = Depends(get_db)):
+        db_chat = models.Chat(**chat.dict())
+        db.add(db_chat)
+        db.commit()
+        db.refresh(db_chat)
+        return db_chat
+
+    @router.get("/", response_model=List[schemas.Chat])
+    def read_chats(db: Session = Depends(get_db)):
+        db_chats = db.query(models.Chat).all()
+        return db_chats
+
+    @router.get("/{chat_id}", response_model=schemas.Chat)
+    def read_chat(chat_id: int, db: Session = Depends(get_db)):
+        db_chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
+        if db_chat is None:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        return db_chat
+
+
+    @router.post("/messages", response_model=schemas.Message, status_code=status.HTTP_201_CREATED)
+    def create_message(message: schemas.MessageCreate, db: Session = Depends(get_db)):
+        db_message = models.Message(**message.dict())
+        db.add(db_message)
+        db.commit()
+        db.refresh(db_message)
+        return db_message
+
+    @router.get("/messages/{chat_id}", response_model=List[schemas.Message])
+    def read_messages(chat_id: int, db: Session = Depends(get_db)):
+       db_messages = db.query(models.Message).filter(models.Message.chat_id == chat_id).all()
+       return db_messages
+    ```
+
+*   **`chat-service/app/main.py`:**
+
+    ```python
+    from fastapi import FastAPI
+    from .database import engine, Base
+
+    from .routers import chats
+
+    Base.metadata.create_all(bind=engine)
+    app = FastAPI()
+
+    app.include_router(chats.router)
+
+
+    @app.get("/")
+    async def root():
+        return {"message": "Hello from chat-service!"}
+    ```
+
+**Important:**
+
+*   **Copy/Paste Carefully:** Make sure you copy the code exactly into the correct files in the corresponding microservice directories.
+*  **Foreign Keys:** The foreign keys for `user_id` will have problems, as they reference a user table that is not in that specific microservice database. We can handle this later, or with a simple migration script to create a user table in each database to start.
+*   **Restart Docker Compose:** After adding all of this, make sure to run `docker-compose down && docker-compose up --build` in the root directory.
+*   **Test:** After restarting the containers you can go to the swagger documentation for each service in each port (`http://localhost:8001/docs`, `http://localhost:8002/docs`, etc) and test all the endpoint.
+
+**Next Steps:**
+
+1.  **Verify All Microservices Work:** After this, make sure all microservices are working properly by testing all of the API endpoints.
+2.  **Basic Integration:** We can create an integration test to test some basic integration between the services (ex: create a user using the `user-service`, and create an address using the `location-service` linked to that user)
+3.  **API Gateway setup** Start the process of building an API gateway.
+
+This is a lot of code, but it gives you a complete backend structure. Let me know when you've verified that everything is working correctly, and we can move on to the next phase!
+

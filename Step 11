@@ -1,0 +1,95 @@
+Okay, let's pick up the pace and quickly add rate limiting to our Nginx API Gateway. We'll use Nginx's built-in `limit_req` module to achieve this.
+
+**Phase 8: Implementing Rate Limiting**
+
+1.  **Update Nginx Configuration (`nginx/nginx.conf`):**
+
+    Modify your `nginx/nginx.conf` file to include rate limiting. The `http` block should look like this:
+
+    ```nginx
+    http {
+        include mime.types;
+        default_type application/octet-stream;
+        sendfile on;
+        keepalive_timeout 65;
+
+
+        limit_req_zone $binary_remote_addr zone=my_rate_limit:10m rate=5r/s;
+
+        server {
+           listen 80;
+            server_name localhost;
+
+            location /users {
+              limit_req zone=my_rate_limit burst=5 nodelay;
+                auth_request /auth;
+                proxy_pass http://user-service:8000;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+            }
+            location /locations {
+                limit_req zone=my_rate_limit burst=5 nodelay;
+                auth_request /auth;
+                proxy_pass http://location-service:8000;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+            }
+             location /catalog {
+                limit_req zone=my_rate_limit burst=5 nodelay;
+                 auth_request /auth;
+                proxy_pass http://catalog-service:8000;
+                proxy_set_header Host $host;
+                 proxy_set_header X-Real-IP $remote_addr;
+            }
+            location /services {
+                 limit_req zone=my_rate_limit burst=5 nodelay;
+                 auth_request /auth;
+                 proxy_pass http://service-listing-service:8000;
+                 proxy_set_header Host $host;
+                 proxy_set_header X-Real-IP $remote_addr;
+            }
+            location /chats {
+                 limit_req zone=my_rate_limit burst=5 nodelay;
+                 auth_request /auth;
+                 proxy_pass http://chat-service:8000;
+                 proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+            }
+            location /auth {
+                internal;
+                proxy_pass http://user-service:8000/users/verify;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_pass_request_body off;
+                proxy_set_header Content-Length "";
+
+            }
+
+        }
+    }
+    ```
+
+    Key changes:
+
+    *   **`limit_req_zone`:** Defines a shared memory zone named `my_rate_limit` that stores the state for rate limiting. It uses the client's IP address (`$binary_remote_addr`) as the key. We limit to 5 requests per second, and we allocate a 10 megabytes zone to store the information.
+    *   **`limit_req`:** applies the rate limiting using the `my_rate_limit` zone in each location block. We use the `burst=5 nodelay` to allow for a burst of 5 request before getting rate limited.
+2.  **Restart Docker Compose:**
+
+    ```bash
+    docker-compose down && docker-compose up --build
+    ```
+
+**Explanation:**
+
+*   **Rate Limiting:**  Nginx will now limit the number of requests coming from a single IP address to 5 requests per second, with a burst of 5 requests being allowed.
+*   **Protection:** This provides basic protection against abuse or denial-of-service attacks.
+*   **Configurable:**  You can easily adjust the `rate` and `burst` parameters in the `nginx.conf` file.
+
+**Next Steps:**
+
+1.  **Test Rate Limiting:** Verify that the rate limiting is working correctly by sending many requests to one service, you should get a status code `429` when you surpass the requests per second.
+2.  **Implement Integration Test:** Write integration test for the rate limiting.
+3.  **Logging:** Start thinking about our logging and monitoring strategy.
+
+Once you verify that the rate limiting is working, let me know, and we'll discuss logging and monitoring!
+

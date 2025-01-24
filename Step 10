@@ -1,0 +1,303 @@
+Okay, let's proceed with implementing basic authentication for our APIs. We'll use JWT (JSON Web Tokens) for authentication and implement a simple authorization system based on user roles. We'll focus on adding this to the API Gateway (Nginx) configuration, and we will also need to update the `user-service` and the `auth.py` file.
+
+**Phase 7: Implementing Basic Authentication**
+
+1.  **Update `user-service/app/auth.py` for authorization**
+
+    ```python
+    from datetime import datetime, timedelta
+    from typing import Annotated
+    from jose import JWTError, jwt
+
+    from fastapi import Depends, HTTPException, status
+    from fastapi.security import OAuth2PasswordBearer
+    from pydantic import BaseModel
+    from .. import models
+    from sqlalchemy.orm import Session
+    from ..database import get_db
+
+
+    SECRET_KEY = "09d25e094faa6ca2556c8183ade366303b3888e5cbc7c78ef00ab8a6"  # TODO : move to environment variable or secret management
+    ALGORITHM = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+    class Token(BaseModel):
+        access_token: str
+        token_type: str
+
+
+    oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/users/login")
+
+    def create_access_token(data: dict, expires_delta: timedelta = None):
+        to_encode = data.copy()
+        if expires_delta:
+            expire = datetime.utcnow() + expires_delta
+        else:
+            expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        to_encode.update({"exp": expire})
+        encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        return encoded_jwt
+
+
+    def decode_token(token: str):
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            username: str = payload.get("sub")
+            if username is None:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+            return username
+        except JWTError:
+             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+
+
+    async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: Session = Depends(get_db)):
+        username = decode_token(token)
+        user = db.query(models.User).filter(models.User.username == username).first()
+        if user is None:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+        return user
+
+    def is_admin(current_user: models.User = Depends(get_current_user)):
+         if current_user.role != models.Role.admin :
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access is required")
+         return True
+    ```
+
+2.  **Update `user-service/app/routers/users.py` for role verification**
+    ```python
+    from fastapi import APIRouter, Depends, HTTPException, status
+    from sqlalchemy.orm import Session
+    from typing import Annotated
+    from fastapi.security import OAuth2PasswordRequestForm
+    from .. import models, schemas
+    from ..database import get_db
+    from ..utils import hash_password, verify_password
+    from datetime import timedelta
+    from ..auth import create_access_token, Token, get_current_user, is_admin
+
+    router = APIRouter(prefix="/users", tags=["users"])
+
+
+    @router.post("/", response_model=schemas.User, status_code=status.HTTP_201_CREATED)
+    def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+        hashed_password = hash_password(user.password)
+        db_user = models.User(**user.dict(), password=hashed_password)
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        return db_user
+
+    @router.get("/", response_model=list[schemas.User], dependencies=[Depends(is_admin)])
+    def read_users(db: Session = Depends(get_db)):
+        db_users = db.query(models.User).all()
+        return db_users
+
+    @router.get("/{user_id}", response_model=schemas.User, dependencies=[Depends(is_admin)])
+    def read_user(user_id: int, db: Session = Depends(get_db)):
+        db_user = db.query(models.User).filter(models.User.id == user_id).first()
+        if db_user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        return db_user
+
+
+    @router.put("/{user_id}", response_model=schemas.User, dependencies=[Depends(is_admin)])
+    def update_user(user_id: int, user: schemas.UserUpdate, db: Session = Depends(get_db)):
+        db_user = db.query(models.User).filter(models.User.id == user_id).first()
+        if db_user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        for key, value in user.dict(exclude_unset=True).items():
+                if key == "password":
+                    setattr(db_user,key, hash_password(value))
+                else :
+                    setattr(db_user,key, value)
+        db.commit()
+        db.refresh(db_user)
+        return db_user
+
+    @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(is_admin)])
+    def delete_user(user_id: int, db: Session = Depends(get_db)):
+        db_user = db.query(models.User).filter(models.User.id == user_id).first()
+        if db_user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        db.delete(db_user)
+        db.commit()
+        return
+
+    @router.post("/login", response_model=Token)
+    def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Session = Depends(get_db)):
+        user = db.query(models.User).filter(models.User.username == form_data.username).first()
+        if not user:
+            raise HTTPException(status_code=400, detail="Incorrect username or password")
+
+        if not verify_password(form_data.password, user.password):
+            raise HTTPException(status_code=400, detail="Incorrect username or password")
+
+        access_token_expires = timedelta(minutes=30)
+        access_token = create_access_token(data={"sub": user.username}, expires_delta=access_token_expires)
+        return {"access_token": access_token, "token_type": "bearer"}
+
+    ```
+3.  **Update Nginx Configuration for Authorization:**
+    *   Update the `nginx/nginx.conf` file to include an authorization logic
+
+    ```nginx
+    worker_processes 1;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+      include mime.types;
+        default_type application/octet-stream;
+        sendfile on;
+        keepalive_timeout 65;
+
+        server {
+           listen 80;
+            server_name localhost;
+
+            location /users {
+                auth_request /auth;
+                proxy_pass http://user-service:8000;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+            }
+            location /locations {
+                auth_request /auth;
+                proxy_pass http://location-service:8000;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+            }
+             location /catalog {
+                 auth_request /auth;
+                proxy_pass http://catalog-service:8000;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+            }
+            location /services {
+                auth_request /auth;
+                 proxy_pass http://service-listing-service:8000;
+                 proxy_set_header Host $host;
+                 proxy_set_header X-Real-IP $remote_addr;
+            }
+            location /chats {
+                auth_request /auth;
+                 proxy_pass http://chat-service:8000;
+                 proxy_set_header Host $host;
+                 proxy_set_header X-Real-IP $remote_addr;
+            }
+            location /auth {
+                internal;
+                proxy_pass http://user-service:8000/users/verify;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_pass_request_body off;
+                proxy_set_header Content-Length "";
+
+            }
+
+        }
+    }
+    ```
+    *  This configures a sub request to the `/users/verify` endpoint, and only if the response is `200` the request will pass through.
+4.  **Add `/users/verify` endpoint in the `user-service/app/routers/users.py`**
+    ```python
+    from fastapi import APIRouter, Depends, HTTPException, status
+    from sqlalchemy.orm import Session
+    from typing import Annotated
+    from fastapi.security import OAuth2PasswordRequestForm
+    from .. import models, schemas
+    from ..database import get_db
+    from ..utils import hash_password, verify_password
+    from datetime import timedelta
+    from ..auth import create_access_token, Token, get_current_user, is_admin
+
+    router = APIRouter(prefix="/users", tags=["users"])
+
+
+    @router.post("/", response_model=schemas.User, status_code=status.HTTP_201_CREATED)
+    def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+        hashed_password = hash_password(user.password)
+        db_user = models.User(**user.dict(), password=hashed_password)
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        return db_user
+
+    @router.get("/", response_model=list[schemas.User], dependencies=[Depends(is_admin)])
+    def read_users(db: Session = Depends(get_db)):
+        db_users = db.query(models.User).all()
+        return db_users
+
+    @router.get("/{user_id}", response_model=schemas.User, dependencies=[Depends(is_admin)])
+    def read_user(user_id: int, db: Session = Depends(get_db)):
+        db_user = db.query(models.User).filter(models.User.id == user_id).first()
+        if db_user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        return db_user
+
+
+    @router.put("/{user_id}", response_model=schemas.User, dependencies=[Depends(is_admin)])
+    def update_user(user_id: int, user: schemas.UserUpdate, db: Session = Depends(get_db)):
+        db_user = db.query(models.User).filter(models.User.id == user_id).first()
+        if db_user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        for key, value in user.dict(exclude_unset=True).items():
+                if key == "password":
+                    setattr(db_user,key, hash_password(value))
+                else :
+                    setattr(db_user,key, value)
+        db.commit()
+        db.refresh(db_user)
+        return db_user
+
+    @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(is_admin)])
+    def delete_user(user_id: int, db: Session = Depends(get_db)):
+        db_user = db.query(models.User).filter(models.User.id == user_id).first()
+        if db_user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        db.delete(db_user)
+        db.commit()
+        return
+
+    @router.post("/login", response_model=Token)
+    def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Session = Depends(get_db)):
+        user = db.query(models.User).filter(models.User.username == form_data.username).first()
+        if not user:
+            raise HTTPException(status_code=400, detail="Incorrect username or password")
+
+        if not verify_password(form_data.password, user.password):
+            raise HTTPException(status_code=400, detail="Incorrect username or password")
+
+        access_token_expires = timedelta(minutes=30)
+        access_token = create_access_token(data={"sub": user.username}, expires_delta=access_token_expires)
+        return {"access_token": access_token, "token_type": "bearer"}
+
+
+    @router.get("/verify")
+    async def verify_user(current_user: models.User = Depends(get_current_user)):
+        return True
+    ```
+5.  **Restart Docker Compose:**
+
+    ```bash
+    docker-compose down && docker-compose up --build
+    ```
+
+**Explanation:**
+
+*   **JWT Authentication:** The `auth.py` file will continue to manage the login and generation of the access token.
+*    **Authorization**: In each service you have to use the `get_current_user` to get the current logged in user and then verify its roles.
+*   **Nginx Authorization:** Nginx is configured to use the `/auth` sub-request, passing the authorization header to the `user-service`. Only if the `user-service` returns a `200` status will the request be executed.
+*   **Admin Access:** All user routes now require a user with admin role to access them.
+**Next Steps:**
+
+1.  **Test Authentication:** Verify that you can only access the API endpoints if you have a valid access token, and only admin can access the `/users` endpoints.
+2.  **Implement Rate Limiting:** add rate limiting in the gateway
+3.  **Integration Tests** Add integration test for the authentication.
+
+Let me know once you have verified the Authentication and Authorization are working correctly, and we will move forward with rate limiting.
+
